@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- using the "Light Blue" Material Palette -->
+    <color name="background">#03A9F4</color>  <!-- 500 -->
+    <color name="background2">#01579B</color>  <!-- 900 -->
+    <color name="temp_panel_background">#455A64</color>
+
+    <color name="bright_text">#eeeeee</color>
+    <color name="dim_text">#cccccc</color>  <!-- 100 -->
+</resources>
