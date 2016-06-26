@@ -1,0 +1,26 @@
+Get weather from OpenWeatherMap API
+
+http://openweathermap.org/API
+
+
+API key: f98468e2c6212a8d946511c331e0c724
+
+Sample XML query by city name: 
+http://api.org/data/2.5/weather?q=San+Miguel+de+Allende&mode=xml
+
+Sample JSON query by city ID:
+http://api.openweathermap.org/data/2.5/weather?id=3985344
+	(looks like json is default format)
+
+City code for San Miguel de Allende: 3985344
+Lat & long for SMA: <coord lon="-100.75" lat="20.92"/>
+
+Can also query by postal code as follows: 37700,MX
+
+10-day forecast for SMA, metric, spanish:
+http://api.openweathermap.org/data/2.5/forecast/daily?q=37700,mx&cnt=10&lang=es&mode=json
+
+	
+
+
+

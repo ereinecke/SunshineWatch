@@ -34,13 +34,21 @@ import com.example.android.sunshine.app.gcm.RegistrationIntentService;
 import com.example.android.sunshine.app.sync.SunshineSyncAdapter;
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.GoogleApiAvailability;
+import com.google.android.gms.common.api.GoogleApiClient;
 
-public class MainActivity extends AppCompatActivity implements ForecastFragment.Callback {
+public class MainActivity extends AppCompatActivity implements
+        ForecastFragment.Callback {
 
     private final String LOG_TAG = MainActivity.class.getSimpleName();
-    private static final String DETAILFRAGMENT_TAG = "DFTAG";
+    private static final String DETAILFRAGMENT_LOG_TAG = "DFLOG_TAG";
     private final static int PLAY_SERVICES_RESOLUTION_REQUEST = 9000;
     public static final String SENT_TOKEN_TO_SERVER = "sentTokenToServer";
+
+    //Request code for launching the Intent to resolve Google Play services errors.
+    private static final int REQUEST_RESOLVE_ERROR = 1000;
+
+    private GoogleApiClient mGoogleApiClient;
+    private boolean mResolvingError = false;
 
     private boolean mTwoPane;
     private String mLocation;
@@ -65,7 +73,8 @@ public class MainActivity extends AppCompatActivity implements ForecastFragment.
             // fragment transaction.
             if (savedInstanceState == null) {
                 getSupportFragmentManager().beginTransaction()
-                        .replace(R.id.weather_detail_container, new DetailFragment(), DETAILFRAGMENT_TAG)
+                        .replace(R.id.weather_detail_container, new DetailFragment(),
+                                DETAILFRAGMENT_LOG_TAG)
                         .commit();
             }
         } else {
@@ -95,7 +104,9 @@ public class MainActivity extends AppCompatActivity implements ForecastFragment.
                 startService(intent);
             }
         }
+
     }
+
 
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
@@ -130,7 +141,7 @@ public class MainActivity extends AppCompatActivity implements ForecastFragment.
             if ( null != ff ) {
                 ff.onLocationChanged();
             }
-            DetailFragment df = (DetailFragment)getSupportFragmentManager().findFragmentByTag(DETAILFRAGMENT_TAG);
+            DetailFragment df = (DetailFragment)getSupportFragmentManager().findFragmentByTag(DETAILFRAGMENT_LOG_TAG);
             if ( null != df ) {
                 df.onLocationChanged(location);
             }
@@ -151,7 +162,7 @@ public class MainActivity extends AppCompatActivity implements ForecastFragment.
             fragment.setArguments(args);
 
             getSupportFragmentManager().beginTransaction()
-                    .replace(R.id.weather_detail_container, fragment, DETAILFRAGMENT_TAG)
+                    .replace(R.id.weather_detail_container, fragment, DETAILFRAGMENT_LOG_TAG)
                     .commit();
         } else {
             Intent intent = new Intent(this, DetailActivity.class)

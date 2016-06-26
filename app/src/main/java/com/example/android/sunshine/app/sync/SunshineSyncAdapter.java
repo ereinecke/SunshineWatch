@@ -35,12 +35,23 @@ import com.example.android.sunshine.app.MainActivity;
 import com.example.android.sunshine.app.R;
 import com.example.android.sunshine.app.Utility;
 import com.example.android.sunshine.app.data.WeatherContract;
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.common.api.PendingResult;
+import com.google.android.gms.wearable.DataApi;
+import com.google.android.gms.wearable.DataEventBuffer;
+import com.google.android.gms.wearable.MessageApi;
+import com.google.android.gms.wearable.MessageEvent;
+import com.google.android.gms.wearable.PutDataMapRequest;
+import com.google.android.gms.wearable.PutDataRequest;
+import com.google.android.gms.wearable.Wearable;
 
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -51,15 +62,31 @@ import java.net.URL;
 import java.util.Vector;
 import java.util.concurrent.ExecutionException;
 
-public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
+public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter implements
+        MessageApi.MessageListener, // TODO: needed?
+        DataApi.DataListener,       // TODO: needed?
+        GoogleApiClient.ConnectionCallbacks,
+        GoogleApiClient.OnConnectionFailedListener
+{
+
     public final String LOG_TAG = SunshineSyncAdapter.class.getSimpleName();
+    public final boolean FORCE_UPDATE = true;  // Time stamp forecast DataMap so it always changes
+
+    // TODO: check to see if there's a wearable paired before making DataLayer calls
+    boolean isPaired = true;   // assume true for now
+
+    private GoogleApiClient mGoogleApiClient;
+    private boolean mResolvingError = false;
+
+    //Request code for launching the Intent to resolve Google Play services errors.
+    private static final int REQUEST_RESOLVE_ERROR = 1000;
+
     // Interval at which to sync with the weather, in seconds.
     // 60 seconds (1 minute) * 180 = 3 hours
     public static final int SYNC_INTERVAL = 60 * 180;
     public static final int SYNC_FLEXTIME = SYNC_INTERVAL/3;
     private static final long DAY_IN_MILLIS = 1000 * 60 * 60 * 24;
     private static final int WEATHER_NOTIFICATION_ID = 3004;
-
 
     private static final String[] NOTIFY_WEATHER_PROJECTION = new String[] {
             WeatherContract.WeatherEntry.COLUMN_WEATHER_ID,
@@ -84,6 +111,13 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
     public static final int LOCATION_STATUS_UNKNOWN = 3;
     public static final int LOCATION_STATUS_INVALID = 4;
 
+    /* Data layer strings for sending to wearable */
+    private static final String FORECAST_PATH = "/forecast";
+    private static final String HI_TEMP_KEY = "hi_temp";
+    private static final String LO_TEMP_KEY = "lo_temp";
+    private static final String WEATHER_ICON_KEY = "icon";
+    private static final String TIME_STAMP_KEY = "time_stamp";
+
     public SunshineSyncAdapter(Context context, boolean autoInitialize) {
         super(context, autoInitialize);
     }
@@ -92,6 +126,14 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
     public void onPerformSync(Account account, Bundle extras, String authority, ContentProviderClient provider, SyncResult syncResult) {
         Log.d(LOG_TAG, "Starting sync");
         String locationQuery = Utility.getPreferredLocation(getContext());
+
+        if (isPaired) {
+            mGoogleApiClient = new GoogleApiClient.Builder(getContext())
+                    .addApi(Wearable.API)
+                    .addConnectionCallbacks(this)
+                    .addOnConnectionFailedListener(this)
+                    .build();
+        };
 
         // These two need to be declared outside the try/catch
         // so that they can be closed in the finally block.
@@ -156,6 +198,7 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
             }
             forecastJsonStr = buffer.toString();
             getWeatherDataFromJson(forecastJsonStr, locationQuery);
+
         } catch (IOException e) {
             Log.e(LOG_TAG, "Error ", e);
             // If the code didn't successfully get the weather data, there's no point in attempting
@@ -179,6 +222,80 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
         }
         return;
     }
+
+    // Send forecast hi, low and weather icon to wearable, if present
+    void sendForecastToWatch(double hi, double lo, int weatherId) {
+        if (!isPaired) return;
+
+        PutDataMapRequest dataMap = PutDataMapRequest.create(FORECAST_PATH);
+        dataMap.getDataMap().putDouble(HI_TEMP_KEY, hi);
+        dataMap.getDataMap().putDouble(LO_TEMP_KEY, lo);
+        dataMap.getDataMap().putLong(TIME_STAMP_KEY, System.currentTimeMillis());
+        dataMap.getDataMap().putByteArray(WEATHER_ICON_KEY, weatherByteArray(weatherId));
+
+        PutDataRequest request = dataMap.asPutDataRequest();
+        PendingResult<DataApi.DataItemResult> pendingResult = Wearable.DataApi
+                .putDataItem(mGoogleApiClient, request);
+
+    }
+
+    // Return a bytearray from the weatherId to send to wearable
+    private byte[] weatherByteArray(int weatherId) {
+
+        Resources resources = getContext().getResources();
+        int weatherIcon = Utility.getIconResourceForWeatherCondition(weatherId);
+        Bitmap bitmap = BitmapFactory.decodeResource(resources, weatherIcon);
+        ByteArrayOutputStream stream = new ByteArrayOutputStream();
+        bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream);
+
+        return stream.toByteArray();
+    }
+
+    // TODO: Decide if this is needed (may be used to trigger update), also implementing in
+    // SyncAdapter
+    @Override
+    public void onMessageReceived(final MessageEvent messageEvent) {
+        Log.d(LOG_TAG, "onMessageReceived() A message from watch was received:"
+                + messageEvent.getRequestId() + " " + messageEvent.getPath());
+    }
+
+    @Override
+    public void onDataChanged(DataEventBuffer dataEvents) {
+        Log.d(LOG_TAG, "onDataChanged: " + dataEvents);
+
+        // The following code is from android-DataLayer
+//        for (DataEvent event : dataEvents) {
+//            if (event.getType() == DataEvent.TYPE_CHANGED) {
+//                mDataItemListAdapter.add(
+//                        new EventLog.Event("DataItem Changed", event.getDataItem().toString()));
+//            } else if (event.getType() == DataEvent.TYPE_DELETED) {
+//                mDataItemListAdapter.add(
+//                        new EventLog.Event("DataItem Deleted", event.getDataItem().toString()));
+//            }
+//        }
+    }
+
+    @Override
+    public void onConnected(Bundle connectionHint) {
+        Log.d(LOG_TAG, "Google API Client was connected");
+        mResolvingError = false;
+        Wearable.DataApi.addListener(mGoogleApiClient, this);
+        Wearable.MessageApi.addListener(mGoogleApiClient, this);
+    }
+
+    @Override
+    public void onConnectionSuspended(int cause) {
+        Log.d(LOG_TAG, "Connection to Google API client was suspended");
+        mGoogleApiClient.connect();
+    }
+
+    @Override
+    public void onConnectionFailed(ConnectionResult result) {
+           Log.e(LOG_TAG, "Connection to Google API client has failed");
+            mResolvingError = false;
+            Wearable.DataApi.removeListener(mGoogleApiClient, this);
+            Wearable.MessageApi.removeListener(mGoogleApiClient, this);
+     }
 
     /**
      * Take the String representing the complete forecast in JSON Format and
@@ -312,6 +429,11 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
                 JSONObject temperatureObject = dayForecast.getJSONObject(OWM_TEMPERATURE);
                 high = temperatureObject.getDouble(OWM_MAX);
                 low = temperatureObject.getDouble(OWM_MIN);
+
+                // Gather today's min, max and weather id only and send wearable if present
+                if (i == 0 && isPaired) {
+                    sendForecastToWatch(high, low, weatherId);
+                }
 
                 ContentValues weatherValues = new ContentValues();
 

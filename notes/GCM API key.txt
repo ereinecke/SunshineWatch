@@ -1,0 +1,7 @@
+Project: SunshineWatch
+Project ID: sunshinewatch-1349
+Project number: 123112101913
+
+GCM API key: AIzaSyCliWrJo9DvDGFsG0vAAJXPVcUdVL15s70
+
+Sender ID: 123112101913
