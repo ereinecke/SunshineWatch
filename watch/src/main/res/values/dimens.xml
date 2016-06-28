@@ -4,16 +4,20 @@
     <dimen name="digital_time_size">60dp</dimen>
     <dimen name="digital_time_size_round">52dp</dimen>
     <dimen name="digital_date_size">24dp</dimen>
-    <dimen name="digital_temp_size">32dp</dimen>
+    <dimen name="digital_temp_size">28dp</dimen>
     <dimen name="digital_ampm_size">16dp</dimen>
 
     <!-- offsets from horizontal midline -->
     <dimen name="horiz_divider_offset">16dp</dimen>
     <dimen name="date_offset">2dp</dimen>
     <dimen name="time_offset">38dp</dimen>
-    <dimen name="temp_offset">64dp</dimen>
+    <dimen name="temp_offset">60dp</dimen>
+
+    <!-- offsets from vertical midline -->
+    <dimen name="hi_temp_offset">38dp</dimen>
+    <dimen name="lo_temp_offset">38dp</dimen>
 
     <!-- offset for 12-hour time to accomodate am or pm -->
-    <dimen name="am_pm_offset">18dp</dimen>
+    <dimen name="am_pm_offset">12dp</dimen>
 
 </resources>

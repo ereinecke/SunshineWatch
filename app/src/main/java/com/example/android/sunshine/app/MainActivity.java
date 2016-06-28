@@ -31,10 +31,8 @@ import android.view.MenuItem;
 import android.view.View;
 
 import com.example.android.sunshine.app.gcm.RegistrationIntentService;
-import com.example.android.sunshine.app.sync.SunshineSyncAdapter;
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.GoogleApiAvailability;
-import com.google.android.gms.common.api.GoogleApiClient;
 
 public class MainActivity extends AppCompatActivity implements
         ForecastFragment.Callback {
@@ -46,9 +44,6 @@ public class MainActivity extends AppCompatActivity implements
 
     //Request code for launching the Intent to resolve Google Play services errors.
     private static final int REQUEST_RESOLVE_ERROR = 1000;
-
-    private GoogleApiClient mGoogleApiClient;
-    private boolean mResolvingError = false;
 
     private boolean mTwoPane;
     private String mLocation;

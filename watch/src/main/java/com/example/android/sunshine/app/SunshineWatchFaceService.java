@@ -61,10 +61,9 @@ public class SunshineWatchFaceService extends CanvasWatchFaceService
     implements GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener {
     
     private static final String LOG_TAG = SunshineWatchFaceService.class.getSimpleName();
-    private static final Typeface NORMAL_TYPEFACE =
-            Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL);
-    private static final Typeface BOLD_TYPEFACE =
-            Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD);
+    private static Typeface normalTypeface;
+    private static Typeface boldTypeface;
+
     private static final boolean FORCE_UPDATE = DataLayerListenerService.FORCE_UPDATE;
 
     private static final String HI_TEMP_KEY = "hi_temp";
@@ -154,11 +153,14 @@ public class SunshineWatchFaceService extends CanvasWatchFaceService
         Paint mLoTempPaint;
         Paint mColonPaint;
         Paint mTempPanelPaint;
+        Paint mWeatherIconPaint;
         float mColonWidth;
         float mTimeOffset;
         float mDateOffset;
         float mTempOffset;
         float mAmPmOffset;
+        float mHiTempOffset;
+        float mLoTempOffset;
         float mHorizDividerOffset;
         boolean mShouldDrawColons;
         boolean mAmbient;
@@ -202,6 +204,10 @@ public class SunshineWatchFaceService extends CanvasWatchFaceService
         public void onCreate(SurfaceHolder holder) {
             super.onCreate(holder);
 
+            // Don't think this should be necessary, but DataLayerListenerService seems to never start
+            Intent intent = new Intent(SunshineWatchFaceService.this, DataLayerListenerService.class);
+            startService(intent);
+
             setWatchFaceStyle(new WatchFaceStyle.Builder(SunshineWatchFaceService.this)
                     .setCardPeekMode(WatchFaceStyle.PEEK_MODE_VARIABLE)
                     .setBackgroundVisibility(WatchFaceStyle.BACKGROUND_VISIBILITY_INTERRUPTIVE)
@@ -210,6 +216,11 @@ public class SunshineWatchFaceService extends CanvasWatchFaceService
                     .build());
             Resources resources = SunshineWatchFaceService.this.getResources();
             Context context = SunshineWatchFaceService.this.getBaseContext();
+
+            normalTypeface =
+                    Typeface.createFromAsset(getAssets(), "fonts/RobotoCondensed-Light.ttf");
+            boldTypeface =
+                    Typeface.createFromAsset(getAssets(), "fonts/RobotoCondensed-Regular.ttf");
 
             mAmString = resources.getString(R.string.digital_am);
             mPmString = resources.getString(R.string.digital_pm);
@@ -220,11 +231,12 @@ public class SunshineWatchFaceService extends CanvasWatchFaceService
             // Define the various Paints used
             mDatePaint = createTextPaint(ContextCompat.getColor(context, R.color.dim_text));
             mHourPaint = createTextPaint(ContextCompat.getColor(context, R.color.bright_text),
-                    BOLD_TYPEFACE);
+                    boldTypeface);
             mMinutePaint = createTextPaint(ContextCompat.getColor(context, R.color.bright_text));
             mAmPmPaint = createTextPaint(ContextCompat.getColor(context, R.color.dim_text));
             mColonPaint = createTextPaint(ContextCompat.getColor(context, R.color.dim_text));
-            mHiTempPaint = createTextPaint(ContextCompat.getColor(context, R.color.bright_text));
+            mHiTempPaint = createTextPaint(ContextCompat.getColor(context, R.color.bright_text),
+                    boldTypeface);
             mLoTempPaint = createTextPaint(ContextCompat.getColor(context, R.color.dim_text));
             mTempPanelPaint = createTextPaint(ContextCompat.getColor(context,
                     R.color.temp_panel_background));
@@ -239,9 +251,12 @@ public class SunshineWatchFaceService extends CanvasWatchFaceService
             mAmPmPaint.setTextSize(resources.getDimension(R.dimen.digital_ampm_size));
 
             mDatePaint.setTextAlign(Paint.Align.CENTER);
-            mAmPmPaint.setTextAlign(Paint.Align.CENTER);
+            mHiTempPaint.setTextAlign(Paint.Align.RIGHT);
 
             mColonWidth = mColonPaint.measureText(COLON_STRING);
+
+            mWeatherIconPaint = new Paint();
+            mWeatherIconPaint.setAntiAlias(true);
 
             // Vertical offsets, relative to horizontal midline
             mTimeOffset = resources.getDimension(R.dimen.time_offset);
@@ -249,6 +264,8 @@ public class SunshineWatchFaceService extends CanvasWatchFaceService
             mTempOffset = resources.getDimension(R.dimen.temp_offset);
             mAmPmOffset = resources.getDimension(R.dimen.am_pm_offset);
             mHorizDividerOffset = resources.getDimension(R.dimen.horiz_divider_offset);
+            mHiTempOffset = resources.getDimension(R.dimen.hi_temp_offset);
+            mLoTempOffset = resources.getDimension(R.dimen.lo_temp_offset);
 
             mCalendar = Calendar.getInstance();
             mDate = new Date();
@@ -263,7 +280,7 @@ public class SunshineWatchFaceService extends CanvasWatchFaceService
 
 
         private Paint createTextPaint(int defaultInteractiveColor) {
-            return createTextPaint(defaultInteractiveColor, NORMAL_TYPEFACE);
+            return createTextPaint(defaultInteractiveColor, normalTypeface);
         }
 
         private Paint createTextPaint(int defaultInteractiveColor, Typeface typeface) {
@@ -457,8 +474,6 @@ public class SunshineWatchFaceService extends CanvasWatchFaceService
             // In ambient and mute modes, always draw the first colon. Otherwise, draw the
             // first colon for the first half of each second.
             if (isInAmbientMode() || mMute || mShouldDrawColons) {
-                // Log.d(LOG_TAG, "colonString: " + COLON_STRING + "; x: " + x + "; mYOffset: " + mYOffset +
-                //        "; mColonPaint.color: " + mColonPaint.getColor());
                 canvas.drawText(COLON_STRING, mXOffset, mYOffset, mColonPaint);
             }
 
@@ -474,23 +489,18 @@ public class SunshineWatchFaceService extends CanvasWatchFaceService
             }
 
             mXOffset -= mHourPaint.measureText(hourString);
-            Log.d(LOG_TAG, "hourString: " + hourString + "; mXOffset: " + mXOffset +
-                    "; mYOffset: " + mYOffset + "; mHourPaint.color: " + mHourPaint.getColor());
             canvas.drawText(hourString, mXOffset, mYOffset, mHourPaint);
             mXOffset = midX + mColonWidth / 2;
 
             // Draw the minutes.
             String minuteString = formatTwoDigitNumber(mCalendar.get(Calendar.MINUTE));
-            Log.d(LOG_TAG, "minuteString: " + minuteString + "; mXOffset: " + mXOffset +
-                   "; mYOffset: " + mYOffset + "; mMinutePaint.color: " + mMinutePaint.getColor());
-            canvas.drawText(minuteString, mXOffset, mYOffset, mMinutePaint);
-            Log.d(LOG_TAG, "minuteString width: " + mMinutePaint.measureText(minuteString));
-            mXOffset += mMinutePaint.measureText(minuteString);
+             canvas.drawText(minuteString, mXOffset, mYOffset, mMinutePaint);
+            mXOffset += mMinutePaint.measureText(minuteString) + 4f;
 
             // If we're in 12-hour mode, draw AM/PM
             // TODO: rotate AM/PM 90 deg, end at baseline
             if (!is24Hour) {
-                Log.d(LOG_TAG, "AmPmString mXOffset: " + mXOffset);
+                // Log.d(LOG_TAG, "AmPmString mXOffset: " + mXOffset);
                 canvas.drawText(getAmPmString(
                         mCalendar.get(Calendar.AM_PM)), mXOffset, mYOffset, mAmPmPaint);
             }
@@ -501,28 +511,43 @@ public class SunshineWatchFaceService extends CanvasWatchFaceService
             canvas.drawText(dateString, midX, midY - mDateOffset, mDatePaint);
 
             // Draw forecast info
-            if (parseForecast()) {  // gets Hi and Lo temps, timestamp and weather icon
-                // TODO: add degree symbol
-                String hiTemp = Double.toString(hi);
-                String loTemp = Double.toString(lo);
-                Log.d(LOG_TAG, "hiTemp: " + hiTemp + "; loTemp: " + loTemp);
+            // if (parseForecast()) {  // gets Hi and Lo temps, timestamp and weather icon
+                parseForecast();
+                String hiTemp;
+                String loTemp;
 
+                // Draw weather icon
+                // TODO: define destination rectangle in dimens.xlm
+                Rect destRect = new Rect(Math.round(midX - 50),
+                        Math.round(midY + mHorizDividerOffset + 4),
+                        Math.round(midX + 50),
+                        Math.round(midY + mHorizDividerOffset + 104));
+
+                // Draw weather icon
+                if (weatherIcon == null) {
+                    canvas.drawBitmap(fakeWeatherIcon(), null, destRect, null);
+                } else {   // Replace with the following when Message is working
+                    canvas.drawBitmap(weatherIcon, null, destRect, null);
+                }
+
+                if (hi != null) {
+                    hiTemp = getString(R.string.format_temperature, hi);
+                    loTemp = getString(R.string.format_temperature, lo);
+                    Log.d(LOG_TAG, "hiTemp: " + hiTemp + "; loTemp: " + loTemp);
+                } else { // temporarily display placeholders if no data available
+                    hiTemp = "Hi\u00B0";
+                    loTemp = "Lo\u00B0";
+                }
+
+                // Hi temperature
                 mYOffset = midY + mTempOffset;
-                mXOffset = midX - mHiTempPaint.measureText(hiTemp) / 2;
-
+                mXOffset = midX - mLoTempOffset;
                 canvas.drawText(hiTemp, mXOffset, mYOffset, mHiTempPaint);
-                mXOffset += (mHiTempPaint.measureText(hiTemp) + mColonWidth);
+                // Lo temperature
+                mXOffset = midX + mLoTempOffset;
                 canvas.drawText(loTemp, mXOffset, mYOffset, mLoTempPaint);
 
-                // place icon vertically centered with temps - need to get text height
-                Rect textBounds = new Rect();
-                mHiTempPaint.getTextBounds(hiTemp, 0, hiTemp.length(), textBounds);
-                // These coordinates are for the center of the icon.
-                mYOffset = textBounds.exactCenterY();
-                mXOffset = midX * 0.6f;
-
-                // TODO: draw weather icon
-            }
+            // }
         }
 
         /* Get forecast info from DataLayerListenerService */
@@ -534,6 +559,7 @@ public class SunshineWatchFaceService extends CanvasWatchFaceService
             // so should always be true.
             if (mForecast == null) {
                 Log.d(LOG_TAG, "Forecast: null");
+
                 return false;
             }
             else if (lastForecast != null &&  mForecast.equals(lastForecast)) {
@@ -568,6 +594,11 @@ public class SunshineWatchFaceService extends CanvasWatchFaceService
             if (shouldTimerBeRunning()) {
                 mUpdateTimeHandler.sendEmptyMessage(MSG_UPDATE_TIME);
             }
+        }
+
+        // Provides a dummy weather icon for debugging
+        Bitmap fakeWeatherIcon() {
+            return BitmapFactory.decodeResource(getResources(), R.drawable.art_rain);
         }
 
         /**

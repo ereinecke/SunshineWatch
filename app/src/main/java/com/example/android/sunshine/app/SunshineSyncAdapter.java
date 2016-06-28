@@ -1,4 +1,4 @@
-package com.example.android.sunshine.app.sync;
+package com.example.android.sunshine.app;
 
 import android.accounts.Account;
 import android.accounts.AccountManager;
@@ -24,20 +24,18 @@ import android.os.Build;
 import android.os.Bundle;
 import android.preference.PreferenceManager;
 import android.support.annotation.IntDef;
+import android.support.annotation.NonNull;
 import android.support.v4.app.NotificationCompat;
 import android.support.v4.app.TaskStackBuilder;
 import android.text.format.Time;
 import android.util.Log;
 
 import com.bumptech.glide.Glide;
-import com.example.android.sunshine.app.BuildConfig;
-import com.example.android.sunshine.app.MainActivity;
-import com.example.android.sunshine.app.R;
-import com.example.android.sunshine.app.Utility;
 import com.example.android.sunshine.app.data.WeatherContract;
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.api.GoogleApiClient;
 import com.google.android.gms.common.api.PendingResult;
+import com.google.android.gms.common.api.ResultCallback;
 import com.google.android.gms.wearable.DataApi;
 import com.google.android.gms.wearable.DataEventBuffer;
 import com.google.android.gms.wearable.MessageApi;
@@ -63,13 +61,12 @@ import java.util.Vector;
 import java.util.concurrent.ExecutionException;
 
 public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter implements
-        MessageApi.MessageListener, // TODO: needed?
+        MessageApi.MessageListener,
         DataApi.DataListener,       // TODO: needed?
         GoogleApiClient.ConnectionCallbacks,
-        GoogleApiClient.OnConnectionFailedListener
-{
+        GoogleApiClient.OnConnectionFailedListener {
 
-    public final String LOG_TAG = SunshineSyncAdapter.class.getSimpleName();
+    public final static String LOG_TAG = SunshineSyncAdapter.class.getSimpleName();
     public final boolean FORCE_UPDATE = true;  // Time stamp forecast DataMap so it always changes
 
     // TODO: check to see if there's a wearable paired before making DataLayer calls
@@ -78,7 +75,7 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter implements
     private GoogleApiClient mGoogleApiClient;
     private boolean mResolvingError = false;
 
-    //Request code for launching the Intent to resolve Google Play services errors.
+    // Request code for launching the Intent to resolve Google Play services errors.
     private static final int REQUEST_RESOLVE_ERROR = 1000;
 
     // Interval at which to sync with the weather, in seconds.
@@ -133,7 +130,7 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter implements
                     .addConnectionCallbacks(this)
                     .addOnConnectionFailedListener(this)
                     .build();
-        };
+        }
 
         // These two need to be declared outside the try/catch
         // so that they can be closed in the finally block.
@@ -234,8 +231,19 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter implements
         dataMap.getDataMap().putByteArray(WEATHER_ICON_KEY, weatherByteArray(weatherId));
 
         PutDataRequest request = dataMap.asPutDataRequest();
+        request.setUrgent();
         PendingResult<DataApi.DataItemResult> pendingResult = Wearable.DataApi
-                .putDataItem(mGoogleApiClient, request);
+                                .putDataItem(mGoogleApiClient, request);
+
+        // check to see if message is successfully sent
+        pendingResult.setResultCallback(new ResultCallback<DataApi.DataItemResult>() {
+            @Override
+            public void onResult(@NonNull DataApi.DataItemResult dataItemResult) {
+                if (dataItemResult.getStatus().isSuccess()) {
+                    Log.d(LOG_TAG, "Data item set: " + dataItemResult.getDataItem().getUri());
+                }
+            }
+        });
 
     }
 
@@ -251,12 +259,17 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter implements
         return stream.toByteArray();
     }
 
-    // TODO: Decide if this is needed (may be used to trigger update), also implementing in
-    // SyncAdapter
+    // Listen for a message from wearable requesting a sync
     @Override
     public void onMessageReceived(final MessageEvent messageEvent) {
+        String messagePath = messageEvent.getPath();
+
         Log.d(LOG_TAG, "onMessageReceived() A message from watch was received:"
-                + messageEvent.getRequestId() + " " + messageEvent.getPath());
+                + messageEvent.getRequestId() + " " + messagePath);
+
+        if (messagePath.equals(FORECAST_PATH)) {
+            syncImmediately(getContext());
+        }
     }
 
     @Override
@@ -432,6 +445,8 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter implements
 
                 // Gather today's min, max and weather id only and send wearable if present
                 if (i == 0 && isPaired) {
+                    Log.d(LOG_TAG, "Sending forecast: hi: " + high + "; lo: " + low +
+                            "; weatherId: " + weatherId);
                     sendForecastToWatch(high, low, weatherId);
                 }
 
@@ -656,6 +671,7 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter implements
      * @param context The context used to access the account service
      */
     public static void syncImmediately(Context context) {
+        Log.d(LOG_TAG, "syncImmediately called");
         Bundle bundle = new Bundle();
         bundle.putBoolean(ContentResolver.SYNC_EXTRAS_EXPEDITED, true);
         bundle.putBoolean(ContentResolver.SYNC_EXTRAS_MANUAL, true);
