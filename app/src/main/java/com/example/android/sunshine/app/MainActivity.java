@@ -129,6 +129,10 @@ public class MainActivity extends AppCompatActivity implements
     @Override
     protected void onResume() {
         super.onResume();
+
+        // Need this to fire up GoogleApiClient in SunshineSyncAdapter
+        SunshineSyncAdapter.syncImmediately(this);
+
         String location = Utility.getPreferredLocation( this );
         // update the location in our second pane using the fragment manager
             if (location != null && !location.equals(mLocation)) {

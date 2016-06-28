@@ -257,6 +257,7 @@ public class SunshineWatchFaceService extends CanvasWatchFaceService
 
             mWeatherIconPaint = new Paint();
             mWeatherIconPaint.setAntiAlias(true);
+            mWeatherIconPaint.setFilterBitmap(true);
 
             // Vertical offsets, relative to horizontal midline
             mTimeOffset = resources.getDimension(R.dimen.time_offset);
@@ -397,7 +398,6 @@ public class SunshineWatchFaceService extends CanvasWatchFaceService
             }
         }
 
-
         /**
          * Captures tap event (and tap type) and toggles the background color if the user finishes
          * a tap.
@@ -511,8 +511,9 @@ public class SunshineWatchFaceService extends CanvasWatchFaceService
             canvas.drawText(dateString, midX, midY - mDateOffset, mDatePaint);
 
             // Draw forecast info
-            // if (parseForecast()) {  // gets Hi and Lo temps, timestamp and weather icon
-                parseForecast();
+            parseForecast();
+            if (mForecast != null) {  // gets Hi and Lo temps, timestamp and weather icon
+
                 String hiTemp;
                 String loTemp;
 
@@ -547,7 +548,7 @@ public class SunshineWatchFaceService extends CanvasWatchFaceService
                 mXOffset = midX + mLoTempOffset;
                 canvas.drawText(loTemp, mXOffset, mYOffset, mLoTempPaint);
 
-            // }
+            }
         }
 
         /* Get forecast info from DataLayerListenerService */

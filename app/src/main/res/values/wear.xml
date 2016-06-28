@@ -2,7 +2,6 @@
 
 <resources>
     <string-array name="android_wear_capabilities" translatable="false">
-        <!-- declaring the provided capabilities -->
-        <item>launch_sync</item>
+        <item>forecast</item>
     </string-array>
 </resources>

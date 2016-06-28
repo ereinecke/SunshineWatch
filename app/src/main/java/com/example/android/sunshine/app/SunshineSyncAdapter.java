@@ -125,11 +125,7 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter implements
         String locationQuery = Utility.getPreferredLocation(getContext());
 
         if (isPaired) {
-            mGoogleApiClient = new GoogleApiClient.Builder(getContext())
-                    .addApi(Wearable.API)
-                    .addConnectionCallbacks(this)
-                    .addOnConnectionFailedListener(this)
-                    .build();
+            startUpGoogleApiClient();
         }
 
         // These two need to be declared outside the try/catch
@@ -220,9 +216,28 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter implements
         return;
     }
 
+    // Start up GoogleApiClient
+    private void startUpGoogleApiClient() {
+        if (mGoogleApiClient == null) {
+            mGoogleApiClient = new GoogleApiClient.Builder(getContext())
+                    .addApi(Wearable.API)
+                    .addConnectionCallbacks(this)
+                    .addOnConnectionFailedListener(this)
+                    .build();
+            Log.d(LOG_TAG, "Calling GoogleApiClient.connect() ");
+            mGoogleApiClient.connect();
+        } else {
+            if (mGoogleApiClient.isConnecting()) {
+                Log.d(LOG_TAG, "GoogleApiClient is connecting");
+            }
+        }
+    }
+
+
+
     // Send forecast hi, low and weather icon to wearable, if present
     void sendForecastToWatch(double hi, double lo, int weatherId) {
-        if (!isPaired) return;
+        if (!isPaired || mGoogleApiClient == null) return;
 
         PutDataMapRequest dataMap = PutDataMapRequest.create(FORECAST_PATH);
         dataMap.getDataMap().putDouble(HI_TEMP_KEY, hi);
@@ -290,8 +305,7 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter implements
 
     @Override
     public void onConnected(Bundle connectionHint) {
-        Log.d(LOG_TAG, "Google API Client was connected");
-        mResolvingError = false;
+        Log.d(LOG_TAG, "Google API Client has connected.");
         Wearable.DataApi.addListener(mGoogleApiClient, this);
         Wearable.MessageApi.addListener(mGoogleApiClient, this);
     }
@@ -304,8 +318,7 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter implements
 
     @Override
     public void onConnectionFailed(ConnectionResult result) {
-           Log.e(LOG_TAG, "Connection to Google API client has failed");
-            mResolvingError = false;
+           Log.e(LOG_TAG, "Connection to Google API client has failed.");
             Wearable.DataApi.removeListener(mGoogleApiClient, this);
             Wearable.MessageApi.removeListener(mGoogleApiClient, this);
      }

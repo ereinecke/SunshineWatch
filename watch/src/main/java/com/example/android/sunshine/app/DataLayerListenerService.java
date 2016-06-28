@@ -1,12 +1,12 @@
 package com.example.android.sunshine.app;
 
 import android.net.Uri;
-import android.os.AsyncTask;
 import android.os.Bundle;
 import android.util.Log;
 
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.common.api.ResultCallback;
 import com.google.android.gms.wearable.CapabilityApi;
 import com.google.android.gms.wearable.CapabilityInfo;
 import com.google.android.gms.wearable.DataEvent;
@@ -20,8 +20,8 @@ import com.google.android.gms.wearable.Wearable;
 import com.google.android.gms.wearable.WearableListenerService;
 
 import java.nio.ByteBuffer;
+import java.util.List;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Listens to DataItems and Messages from the local node.
@@ -45,9 +45,9 @@ public class DataLayerListenerService extends WearableListenerService implements
     public  static final boolean FORCE_UPDATE = true;
 
     private static DataMap mForecast;
-    private static String syncNodeId;
+    private static String forecastNodeId;
 
-    private GoogleApiClient mGoogleApiClient;
+    private static GoogleApiClient mGoogleApiClient;
 
     @Override
     public void onCreate() {
@@ -61,8 +61,7 @@ public class DataLayerListenerService extends WearableListenerService implements
 
         mGoogleApiClient.connect();
 
-        RequestForecast requestForecast = new RequestForecast();
-        requestForecast.execute();
+        requestForecast();
     }
 
     @Override
@@ -74,7 +73,7 @@ public class DataLayerListenerService extends WearableListenerService implements
 
     @Override
     public void onConnectionSuspended(int cause) {
-        Log.d(LOG_TAG, "Connection to Google API client was suspended");
+        Log.d(LOG_TAG, "onConnectionSuspended: " + cause);
         mGoogleApiClient.connect();
     }
 
@@ -85,27 +84,27 @@ public class DataLayerListenerService extends WearableListenerService implements
         Wearable.MessageApi.removeListener(mGoogleApiClient, this);
     }
 
-    // TODO: set up a CapabilityChangedListener
+    //
     @Override
     public void onCapabilityChanged(CapabilityInfo capabilityInfo) {
         Log.d(LOG_TAG, "CapabilityInfo: " + capabilityInfo.toString());
-        RequestForecast requestForecast = new RequestForecast();
-        requestForecast.execute();
-
+        requestForecast();
     }
+
 
     @Override
     public void onDataChanged(DataEventBuffer dataEvents) {
         Log.d(LOG_TAG, "onDataChanged: " + dataEvents);
 
-        if (!mGoogleApiClient.isConnected() || !mGoogleApiClient.isConnecting()) {
-            ConnectionResult connectionResult = mGoogleApiClient
-                    .blockingConnect(30, TimeUnit.SECONDS);
-            if (!connectionResult.isSuccess()) {
-                Log.e(LOG_TAG, "DataLayerListenerService failed to connect to GoogleApiClient, "
-                        + "error code: " + connectionResult.getErrorCode());
-                return;
-            }
+        if (!mGoogleApiClient.isConnected() && !mGoogleApiClient.isConnecting()) {
+            // This blocking call is causing an IllegalStateException: "blockingConnect must not be
+            // called on the UI thread", yet documentation states that a WearableListenerService
+            // runs on a background thread.
+            // ConnectionResult connectionResult = mGoogleApiClient
+            //        .blockingConnect(30, TimeUnit.SECONDS);
+            // if (!connectionResult.isSuccess()) {
+            Log.e(LOG_TAG, "In onDataChanged, GoogleApiClient not connected.");
+            return;
         }
 
         // Loop through the events and send a message back to the node that created the data item.
@@ -119,6 +118,7 @@ public class DataLayerListenerService extends WearableListenerService implements
                 // Get the node id of the node that created the data item from the host portion of
                 // the uri.
                 String nodeId = uri.getHost();
+                Log.d(LOG_TAG, "NodeId from DataItem: " + nodeId);
 
                 // Extract forecast DataMap from payload
                 DataItem item = event.getDataItem();
@@ -135,44 +135,74 @@ public class DataLayerListenerService extends WearableListenerService implements
         }
     }
 
-    // Look for node with sync capability (should be handheld running Sunshine app)
-    // and get
-    private class RequestForecast extends AsyncTask<Void, Void, String> {
+    @Override
+    public void onConnectedNodes(List<Node> connectedNodes) {
+        // After we are notified by this callback, we need to query for the nodes that provide the
+        // forecast capability and are directly connected.
+        if (mGoogleApiClient.isConnected()) {
+            setOrUpdateForecastConnection();
+        } else if (!mGoogleApiClient.isConnecting()) {
+            mGoogleApiClient.connect();
+        }
+    }
 
-        protected String doInBackground(Void... params) {
+    private static void setOrUpdateForecastConnection() {
 
-            CapabilityApi.GetCapabilityResult result =
-                    Wearable.CapabilityApi.getCapability(mGoogleApiClient, FORECAST_CAPABILITY,
-                            CapabilityApi.FILTER_REACHABLE).await();
-
-            // Get best node (expect only one with this capability)
-            Set<Node> connectedNodes = result.getCapability().getNodes();
-            Log.d(LOG_TAG, "Number of connected nodes: " + connectedNodes.size());
-            if (connectedNodes.size() == 0) {
-                Log.d(LOG_TAG, "Result: " + result.getCapability().getName());
-            }
-            syncNodeId = null;
-            for (Node node : connectedNodes) {
-                Log.d(LOG_TAG, "Node: " + node.toString());
-                if (node.isNearby()) {
-                    Log.d(LOG_TAG, "Found node: " + node.toString());
-                    syncNodeId = node.getId();
+        if (mGoogleApiClient == null) {  // assume it's connecting, wait for next call
+            Log.d(LOG_TAG, "GoogleApiClient not yet connected in setOrUpdateForecastConnection()");
+            return;
+        }
+        Wearable.CapabilityApi.getCapability(
+            mGoogleApiClient, FORECAST_CAPABILITY,
+            CapabilityApi.FILTER_REACHABLE).setResultCallback(
+            new ResultCallback<CapabilityApi.GetCapabilityResult>() {
+                @Override
+                public void onResult(CapabilityApi.GetCapabilityResult result) {
+                    if (result.getStatus().isSuccess()) {
+                        Log.d(LOG_TAG, "Capability: " + result.getCapability().getName());
+                        updateForecastCapability(result.getCapability());
+                    } else {
+                        Log.e(LOG_TAG,
+                                "setOrUpdateForecastConnection() Failed to get capabilities, "
+                                        + "status: "
+                                        + result.getStatus().getStatusMessage());
+                    }
                 }
             }
-            return syncNodeId;
-        }
+        );
+    }
 
-        protected void onPostExecute(String syncNodeId) {
-            if (syncNodeId == null) {
-                Log.d(LOG_TAG, "No node found with sync capability");
-                return;
-            } else {
-                Wearable.MessageApi.sendMessage(mGoogleApiClient, syncNodeId,
-                        FORECAST_PATH, FORECAST_CAPABILITY.getBytes());
-                Log.d(LOG_TAG, "Message sent requesting forecast");
+    private static void updateForecastCapability(CapabilityInfo capabilityInfo) {
+        Set<Node> connectedNodes = capabilityInfo.getNodes();
+        if (connectedNodes.size() == 0) {
+            Log.d(LOG_TAG, "No connected nodes found.");
+        }
+        for (Node node : connectedNodes) {
+            Log.d(LOG_TAG, "Node: " + node.toString());
+            // we are only considering those nodes that are directly connected
+            if (node.isNearby()) {
+                Log.d(LOG_TAG, "Found node: " + node.toString());
+                forecastNodeId = node.getId();
             }
-
         }
+    }
+
+    // Sends a message to SunshineAsyncAdapter requesting a forecast message
+    public static void requestForecast() {
+
+        if (mGoogleApiClient == null) {  // assume it's connecting, wait for next call
+            Log.d(LOG_TAG, "GoogleApiClient not yet connected");
+            return;
+        }
+
+        if (forecastNodeId == null) {
+            Log.d(LOG_TAG, "No node found with forecast capability");
+            setOrUpdateForecastConnection();
+        }
+
+        Wearable.MessageApi.sendMessage(mGoogleApiClient, forecastNodeId,
+                FORECAST_PATH, FORECAST_CAPABILITY.getBytes());
+        Log.d(LOG_TAG, "Message sent requesting forecast with nodeId: " + forecastNodeId);
     }
 
     // Convert long to Byte array
@@ -186,6 +216,7 @@ public class DataLayerListenerService extends WearableListenerService implements
     public static DataMap getForecast() {
 
         if (mForecast == null) {
+            requestForecast();
             return null;  // Catch result on next tick??
         }
         return mForecast;
